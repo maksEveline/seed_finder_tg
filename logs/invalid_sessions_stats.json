@@ -1,0 +1,13 @@
+{
+    "total_invalid": 9,
+    "sessions": {
+        "152670574": {
+            "error_type": "auth_key_duplicated",
+            "timestamp": "2025-01-26 23:48:23"
+        },
+        "153726081": {
+            "error_type": "channel_private",
+            "timestamp": "2025-01-27 18:17:03"
+        }
+    }
+}
