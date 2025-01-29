@@ -1,27 +1,43 @@
 from opentele.td import TDesktop
-from opentele.tl import TelegramClient
-from opentele.api import API, UseCurrentSession
+from opentele.api import UseCurrentSession
 import asyncio
+import os
+
+
+async def process_account(account_folder, sessions_folder):
+    tdata_path = os.path.join("tdatas", account_folder, "tdata")
+    if not os.path.exists(tdata_path):
+        print(f"Папка {account_folder} не найдена")
+        return
+
+    tdesk = TDesktop(tdata_path)
+    if not tdesk.isLoaded():
+        print(f"Папка {account_folder} не загружена")
+        return
+
+    session_path = os.path.join(sessions_folder, f"{account_folder}.session")
+    client = await tdesk.ToTelethon(session=session_path, flag=UseCurrentSession)
+
+    await client.connect()
+    await client.PrintSessions()
+    await client.disconnect()
 
 
 async def main():
+    base_folder = "tdatas"
+    sessions_folder = "converted_sessions"
+    os.makedirs(sessions_folder, exist_ok=True)
 
-    # Load TDesktop client from tdata folder
-    tdataFolder = "/Users/sixthjeez/Documents/GitHub/seed_finder_tg/1237602998/tdata"
-    tdesk = TDesktop(tdataFolder)
+    accounts = [
+        d
+        for d in os.listdir(base_folder)
+        if os.path.isdir(os.path.join(base_folder, d))
+    ]
 
-    # Check if we have loaded any accounts
-    assert tdesk.isLoaded()
+    tasks = [process_account(account, sessions_folder) for account in accounts]
+    await asyncio.gather(*tasks)
 
-    # flag=UseCurrentSession
-    #
-    # Convert TDesktop to Telethon using the current session.
-    client = await tdesk.ToTelethon(session="telethon.session", flag=UseCurrentSession)
-
-    # Connect and print all logged-in sessions of this client.
-    # Telethon will save the session to telethon.session on creation.
-    await client.connect()
-    await client.PrintSessions()
+    print(f"Конвертация завершена\nОбработано {len(accounts)} аккаунтов.")
 
 
 asyncio.run(main())
