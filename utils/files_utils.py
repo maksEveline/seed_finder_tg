@@ -18,13 +18,7 @@ def parse_proxy(proxy_line):
         user_password, host_port = proxy_line.rsplit("@", 1)
         user, password = user_password.split(":", 1)
         host, port = host_port.split(":", 1)
-        return {
-            "scheme": "http",
-            "hostname": host,
-            "port": int(port),
-            "username": user,
-            "password": password,
-        }
+        return ("http", host, int(port), user, password)  # HTTP вместо SOCKS5
     except Exception as e:
         print(f"Ошибка при парсинге прокси: {e}")
         return None

