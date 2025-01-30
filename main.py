@@ -71,7 +71,9 @@ def is_valid_mnemonic(text):
         cleaned_text = re.sub(r"[^\w\s]", " ", text)
         words = cleaned_text.strip().split()
 
-        return len(words) in (12, 18, 24) and all(word in BIP39_WORDS for word in words)
+        return len(words) in (12, 15, 18, 21, 24) and all(
+            word in BIP39_WORDS for word in words
+        )
     except Exception as e:
         print(f"Ошибка при проверке сид-фразы: {e}")
         return False
@@ -240,11 +242,15 @@ async def process_session(session_path, session_name):
                         )
                         if isinstance(dialog.entity, User):
                             try:
+                                message_count = 0
                                 async for message in client.iter_messages(
-                                    dialog.entity.id
+                                    dialog.entity.id, limit=500
                                 ):
                                     await check_message(message, session_name)
                                     await random_delay()
+                                    message_count += 1
+                                    if message_count >= 500:
+                                        break
                             except Exception as e:
                                 print(f"Ошибка при проверке сообщения: {e}")
                 stats.processed_sessions += 1
