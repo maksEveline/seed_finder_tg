@@ -9,6 +9,8 @@ from random import choice
 
 from telethon import TelegramClient
 from telethon.tl.types import User
+from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
+
 
 from utils.states import Stats
 from utils.time_utils import random_delay
@@ -29,6 +31,18 @@ from config import (
 current_time = datetime.now().strftime("%d.%m.%Y_%H.%M")
 OUTPUT_FILE = f"{LOGS_DIR}/output_{current_time}.txt"
 stats = Stats()
+
+
+async def check_auth(session_path, api_id, api_hash, proxy):
+    client = TelegramClient(session_path, api_id, api_hash, proxy=proxy)
+    await client.connect()
+
+    if not await client.is_user_authorized():
+        await client.disconnect()
+        return False
+
+    await client.disconnect()
+    return True
 
 
 async def download_txt_files_from_saved_messages(client, session_name):
@@ -179,7 +193,7 @@ async def check_message(message, session_name):
             await check_text(message.text, session_name)
             await random_delay()
     except Exception as e:
-        print(f"Ошибка при проверке сообщения: {e}")
+        print(f"Ошибка при проверке сообщения:(check message) {e}")
 
 
 async def process_session(session_path, session_name):
@@ -213,23 +227,27 @@ async def process_session(session_path, session_name):
                 proxy_attempts += 1
                 continue
 
-            if proxy_data:
-                proxy_type, host, port, user, password = proxy_data
-                proxy = (
-                    socks.HTTP,
-                    host,
-                    port,
-                    True,
-                    user,
-                    password,
-                )  # HTTP с авторизацией
+            proxy_type, host, port, user, password = proxy_data
+            proxy = (
+                socks.HTTP,
+                host,
+                port,
+                True,
+                user,
+                password,
+            )
 
             print(f"Сессия {session_name} использует прокси: {proxy[1]}:{proxy[2]}")
+
+            if not await check_auth(session_path, api_id, api_hash, proxy):
+                print(f"Сессия {session_name} не авторизована, пропускаем")
+                return
 
             try:
                 async with TelegramClient(
                     session_path, api_id, api_hash, proxy=proxy
                 ) as client:
+
                     print(
                         f"Сессия {session_name} успешно подключилась через {proxy[1]}:{proxy[2]}"
                     )
@@ -252,10 +270,16 @@ async def process_session(session_path, session_name):
                                     if message_count >= 500:
                                         break
                             except Exception as e:
-                                print(f"Ошибка при проверке сообщения: {e}")
+                                print(
+                                    f"Ошибка при проверке сообщения (process session): {e}"
+                                )
+
                 stats.processed_sessions += 1
                 break
 
+            except (SessionPasswordNeededError, PhoneCodeInvalidError) as e:
+                print(f"Сессия {session_name} требует ввод пароля/кода. Пропуск...")
+                return
             except Exception as e:
                 print(f"Ошибка при обработке сессии {session_name}: {e}")
                 proxy_attempts += 1
@@ -270,7 +294,6 @@ async def process_session(session_path, session_name):
         print(
             f"Пропуск сессии {session_name}: не удалось найти рабочий прокси после {max_proxy_attempts} попыток"
         )
-        return
 
 
 async def main():
