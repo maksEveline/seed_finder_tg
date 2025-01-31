@@ -20,24 +20,35 @@ def get_random_donor_json():
 
 
 async def process_account(account_folder):
-    tdata_path = os.path.join(base_folder, account_folder, "tdata")
-    if not os.path.exists(tdata_path):
-        print(f"Папка {account_folder} не найдена")
-        return
+    try:
+        tdata_path = os.path.join(base_folder, account_folder, "tdata")
+        if not os.path.exists(tdata_path):
+            print(f"Папка {account_folder} не найдена")
+            return
 
-    tdesk = TDesktop(tdata_path)
-    if not tdesk.isLoaded():
-        print(f"Папка {account_folder} не загружена")
-        return
+        tdesk = TDesktop(tdata_path)
+        if not tdesk.isLoaded():
+            print(f"Папка {account_folder} не загружена")
+            return
 
-    session_path = os.path.join(converted_folder, f"{account_folder}.session")
-    client = await tdesk.ToTelethon(session=session_path, flag=UseCurrentSession)
-    await client.connect()
-    await client.disconnect()
+        session_path = os.path.join(converted_folder, f"{account_folder}.session")
+        client = await tdesk.ToTelethon(session=session_path, flag=UseCurrentSession)
+        await client.connect()
+        await client.disconnect()
 
-    donor_json_path = get_random_donor_json()
-    new_json_path = os.path.join(converted_folder, f"{account_folder}.json")
-    shutil.copy(donor_json_path, new_json_path)
+        donor_json_path = get_random_donor_json()
+        new_json_path = os.path.join(converted_folder, f"{account_folder}.json")
+        shutil.copy(donor_json_path, new_json_path)
+    except Exception:
+        print(f"Ошибка при обработке аккаунта {account_folder}")
+        try:
+            os.remove(session_path)
+        except Exception:
+            pass
+        try:
+            os.remove(new_json_path)
+        except Exception:
+            pass
 
 
 async def main():
