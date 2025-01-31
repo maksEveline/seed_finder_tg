@@ -3,7 +3,7 @@ from telethon import TelegramClient
 
 api_id = 22958441
 api_hash = "330d700e87105b18835fd8d325d7d997"
-session_name = "converted_sessions/154507481.session"
+session_name = "converted_sessions/Telegram (11).session"
 
 
 async def get_account_id():
