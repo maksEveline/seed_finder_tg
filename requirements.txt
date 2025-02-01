@@ -2,3 +2,6 @@ opentele
 Telethon
 requests
 PySocks
+easyocr
+pytesseract
+pillow

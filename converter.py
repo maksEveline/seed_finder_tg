@@ -26,7 +26,6 @@ async def process_account(account_folder):
     session_path = None
     new_json_path = None
 
-    # print(f"[ИНФО] Обрабатывается аккаунт: {account_folder}")
     try:
         tdata_path = os.path.join(base_folder, account_folder, "tdata")
         if not os.path.exists(tdata_path):
