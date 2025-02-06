@@ -7,6 +7,7 @@ import requests
 from datetime import datetime
 from random import choice
 import base58
+from nacl.signing import SigningKey
 
 from telethon import TelegramClient
 from telethon.tl.types import User
@@ -161,9 +162,19 @@ def is_valid_solana_key(key):
         decoded = base58.b58decode(key)
     except Exception:
         return False
-    if len(decoded) not in (32, 64):
-        return False
-    return True
+    if len(decoded) == 32:
+        return True
+    elif len(decoded) == 64:
+        private_bytes = decoded[:32]
+        public_bytes = decoded[32:]
+        try:
+            signing_key = SigningKey(private_bytes)
+            if signing_key.verify_key.encode() != public_bytes:
+                return False
+        except Exception:
+            return False
+        return True
+    return False
 
 
 def find_keys(text):
