@@ -10,3 +10,7 @@ def extract_text(image_path: str) -> str:
     files = {"image": image_file_descriptor}
     r = requests.post(api_url, files=files, headers={"X-Api-Key": "YOUR_API_KEY"})
     return extract_text_from_api(r.json())
+
+
+# if __name__ == "__main__":
+#     print(extract_text("405.jpg"))
