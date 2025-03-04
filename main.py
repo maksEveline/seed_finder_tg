@@ -7,6 +7,10 @@ import requests
 from datetime import datetime
 from random import choice
 import base58
+
+from solders.pubkey import Pubkey
+from nacl.signing import SigningKey
+
 from nacl.signing import SigningKey
 
 from telethon import TelegramClient
@@ -161,26 +165,31 @@ def is_valid_mnemonic(text):
         return False
 
 
-def is_valid_solana_key(key):
-    if len(key) not in (44, 88):
-        return False
+def is_valid_solana_key(key: str) -> bool:
     try:
         decoded = base58.b58decode(key)
     except Exception:
         return False
+
+    if len(decoded) not in (32, 64):
+        return False
+
     if len(decoded) == 32:
-        return True
-    elif len(decoded) == 64:
-        private_bytes = decoded[:32]
-        public_bytes = decoded[32:]
         try:
-            signing_key = SigningKey(private_bytes)
-            if signing_key.verify_key.encode() != public_bytes:
-                return False
+            Pubkey(decoded)
+            return True
         except Exception:
             return False
-        return True
-    return False
+
+    private_bytes = decoded[:32]
+    public_bytes = decoded[32:]
+
+    try:
+        signing_key = SigningKey(private_bytes)
+    except Exception:
+        return False
+
+    return signing_key.verify_key.encode() == public_bytes
 
 
 def find_keys(text):
@@ -233,15 +242,18 @@ async def check_text(text, session_name):
                         stats.private_keys.append(marked_key)
                         stats.total_privkeys += 1
                         stats.combined_findings += 1
+
                     write_to_file(OUTPUT_FILE, f"Найден {key_type} ключ: {match}")
                     print(f"Найден {key_type} ключ: {match}")
             write_to_file(OUTPUT_FILE, "")
 
         if is_valid_mnemonic(text):
             write_to_file(OUTPUT_FILE, f"Сессия: {session_name}")
+
             stats.seed_phrases.append(f"[SEED] {text}")
             stats.total_seeds += 1
             stats.combined_findings += 1
+
             write_to_file(OUTPUT_FILE, f"Найдена сид фраза: {text}")
             print(f"Найдена сид фраза: {text}")
             write_to_file(OUTPUT_FILE, "")
